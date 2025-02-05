@@ -381,4 +381,192 @@ class FunctionScoreQueryTest extends \PHPUnit\Framework\TestCase
         static::assertSame(['a' => 'b'], $agg->getParameters());
         static::assertSame($query, $agg->getQuery());
     }
+
+    public function testAddWeightFunctionWithName(): void
+    {
+        $functionScoreQuery = new FunctionScoreQuery(new MatchAllQuery());
+        $functionScoreQuery->addWeightFunction(5, new TermsQuery('foo', ['bar']), 'test_name');
+
+        static::assertEquals(
+            [
+                'query' => [
+                    'match_all' => new \stdClass(),
+                ],
+                'functions' => [
+                    [
+                        'weight' => 5,
+                        'filter' => [
+                            'terms' => [
+                                'foo' => ['bar'],
+                            ],
+                        ],
+                        '_name' => 'test_name',
+                    ],
+                ],
+            ],
+            $functionScoreQuery->toArray()['function_score']
+        );
+    }
+
+    public function testAddFieldValueFactorFunctionWithName(): void
+    {
+        $functionScoreQuery = new FunctionScoreQuery(new MatchAllQuery());
+        $functionScoreQuery->addFieldValueFactorFunction('field1', 2, 'none', null, null, 'test_name');
+
+        static::assertEquals(
+            [
+                'query' => [
+                    'match_all' => new \stdClass(),
+                ],
+                'functions' => [
+                    [
+                        'field_value_factor' => [
+                            'field' => 'field1',
+                            'factor' => 2,
+                            'modifier' => 'none',
+                        ],
+                        '_name' => 'test_name',
+                    ],
+                ],
+            ],
+            $functionScoreQuery->toArray()['function_score']
+        );
+    }
+
+    public function testAddDecayFunctionWithName(): void
+    {
+        $functionScoreQuery = new FunctionScoreQuery(new MatchAllQuery());
+        $functionScoreQuery->addDecayFunction(
+            'linear',
+            'field1',
+            [
+                'origin' => 10,
+                'scale' => 50,
+                'offset' => 0,
+                'decay' => 0.5,
+            ],
+            ['foo' => 'bar'],
+            new TermsQuery('foo', ['bar']),
+            5,
+            'test_name'
+        );
+
+        static::assertEquals(
+            [
+                'query' => [
+                    'match_all' => new \stdClass(),
+                ],
+                'functions' => [
+                    [
+                        'linear' => [
+                            'field1' => [
+                                'origin' => 10,
+                                'scale' => 50,
+                                'offset' => 0,
+                                'decay' => 0.5,
+                            ],
+                            'foo' => 'bar',
+                        ],
+                        'weight' => 5,
+                        'filter' => [
+                            'terms' => [
+                                'foo' => ['bar'],
+                            ],
+                        ],
+                        '_name' => 'test_name',
+                    ],
+                ],
+            ],
+            $functionScoreQuery->toArray()['function_score']
+        );
+    }
+
+    public function testAddRandomFunctionWithName(): void
+    {
+        $functionScoreQuery = new FunctionScoreQuery(new MatchAllQuery());
+        $functionScoreQuery->addRandomFunction('someSeed', new TermsQuery('foo', ['bar']), 'test_name');
+
+        static::assertEquals(
+            [
+                'query' => [
+                    'match_all' => new \stdClass(),
+                ],
+                'functions' => [
+                    [
+                        'random_score' => ['seed' => 'someSeed'],
+                        'filter' => [
+                            'terms' => [
+                                'foo' => ['bar'],
+                            ],
+                        ],
+                        '_name' => 'test_name',
+                    ],
+                ],
+            ],
+            $functionScoreQuery->toArray()['function_score']
+        );
+    }
+
+    public function testAddScriptScoreFunctionWithName(): void
+    {
+        $fquery = new FunctionScoreQuery(new MatchAllQuery());
+        $fquery->addScriptScoreFunction(
+            "
+            if (doc['price'].value < params.target)
+             {
+               return doc['price'].value * params.charge;
+             }
+             return doc['price'].value;
+             ",
+            [
+                'target' => 10,
+                'charge' => 0.9,
+            ],
+            ['foo' => 'bar'],
+            new TermsQuery('foo', ['bar']),
+            'test_name'
+        );
+
+        $search = new Search();
+        $search->addQuery($fquery);
+
+        $expected = [
+            'query' => [
+                'function_score' => [
+                    'query' => [
+                        'match_all' => [],
+                    ],
+                    'functions' => [
+                        0 => [
+                            'script_score' => [
+                                'script' => [
+                                    'lang' => 'painless',
+                                    'source' => '
+            if (doc[\'price\'].value < params.target)
+             {
+               return doc[\'price\'].value * params.charge;
+             }
+             return doc[\'price\'].value;
+             ',
+                                    'params' => [
+                                        'target' => 10,
+                                        'charge' => 0.9,
+                                    ],
+                                    'foo' => 'bar',
+                                ],
+                            ],
+                            'filter' => [
+                                'terms' => [
+                                    'foo' => ['bar'],
+                                ],
+                            ],
+                            '_name' => 'test_name',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        static::assertEquals($expected, json_decode(json_encode($search->toArray(), \JSON_THROW_ON_ERROR), true, 512, \JSON_THROW_ON_ERROR));
+    }
 }
